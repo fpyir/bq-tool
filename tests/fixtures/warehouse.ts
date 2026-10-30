@@ -2,6 +2,7 @@ import type { BigQuery, JobMetadata, Query } from "@google-cloud/bigquery";
 import type { ClientFactory } from "../../src/connection.ts";
 
 export class FakeWarehouse {
+  jobId = "query-1";
   calls: { method: string; options: unknown }[] = [];
   dry: JobMetadata = { statistics: { query: { statementType: "SELECT", totalBytesProcessed: "128", referencedTables: [] } } };
   metadata: JobMetadata = { status: { state: "DONE" }, statistics: { query: { statementType: "SELECT", totalBytesProcessed: "128", totalBytesBilled: "10485760", cacheHit: false } } };
@@ -35,7 +36,7 @@ export class FakeWarehouse {
         query: { query: options.query!, useLegacySql: options.useLegacySql!, maximumBytesBilled: options.maximumBytesBilled!, queryParameters: options.queryParameters! },
         labels: options.labels!, jobTimeoutMs: String(options.jobTimeoutMs),
       };
-      return [{ id: "query-1", metadata: this.metadata }];
+      return [{ id: this.jobId, metadata: this.metadata }];
     },
     job: () => ({
       getMetadata: async () => {

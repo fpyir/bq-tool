@@ -1,6 +1,6 @@
 # BQ Tool prototype plan
 
-Status: Milestone 0 is complete and committed. Milestone 1 implements schema discovery, bounded read queries, status/cancellation, and execution receipts through the CLI and MCP. Saved local datasets remain Milestone 2.
+Status: Milestones 0 and 1 are complete and committed. Milestone 2 implements complete Parquet snapshots, explicit reusable workspaces, bounded DuckDB queries, derived-result lineage, resume, deletion and exports through the shared core. Plugin delivery remains Milestone 3.
 
 BQ Tool gives agents a repeatable workflow for discovering BigQuery data, running bounded read queries, keeping useful results locally, and answering follow-up questions with traceable evidence. The first delivery is an open-source plugin for local Codex and ChatGPT desktop, backed by a CLI and one shared implementation.
 
@@ -77,7 +77,7 @@ Keep the stored BigQuery schema alongside the local schema. Test exact integers 
 
 ### Tool surface
 
-Keep the first interface small and explicit. These are proposed operations, not implemented commands.
+The core operations below are implemented in Milestones 0–2. `query` / `run_query` return inline results; `extract` / `save_query` publish Parquet snapshots. `save-run` / `save_run` resume extraction without submitting another job.
 
 | Operation | Purpose |
 | --- | --- |
@@ -102,7 +102,8 @@ Every operation takes its workspace or configuration explicitly; the MCP process
 - Treat IAM as the authority for warehouse access. Prefer dataset-scoped Data Viewer and a billing-project Job User identity. Application configuration and skill instructions do not reduce the permissions of a broadly privileged credential. Do not change IAM as part of installation.
 - Always dry-run before execution, and also set `maximumBytesBilled` on the real job. Google documents both in its [cost controls](https://docs.cloud.google.com/bigquery/docs/best-practices-costs). The setting bounds on-demand bytes billed; it is not a universal currency budget or capacity-pricing cap.
 - Start with configurable defaults of 1 GiB maximum bytes billed per query, 100,000 downloaded rows, 100 MiB downloaded data, and a 10-row model preview. Enforce download limits during pagination. Exceeding a materialization limit produces an explicit incomplete result, not a usable truncated dataset. Query processing costs may already have occurred.
-- Milestone 1 returns results inline, with smaller defaults of 1000 rows and 1 MiB of decoded schema/rows. Explicit limits can increase these to 100,000 rows and 100 MiB. Saved materialization and separate previews arrive in Milestone 2; inline limits do not implicitly add SQL LIMIT or return truncated data.
+- Inline warehouse and local queries default to 1000 rows and 1 MiB of decoded data; warehouse extraction defaults to 100,000 rows and 100 MiB. Explicit limits can increase inline/derived results to those same ceilings. Saved snapshots return at most 10 preview rows / 64 KiB. Limits never imply a silently truncated usable result.
+- Local execution defaults to 30 seconds (up to 60), 256 MiB DuckDB memory, two threads and no disk spilling. Workspaces default to a 1 GiB application disk budget, set at creation; serialized writes check reserved/actual usage before publication. These are application/engine controls, not total-process or OS filesystem quotas.
 - Add job timeout and cancellation handling, plus local memory, disk, and execution limits. A client timeout is not proof that the server job stopped.
 - Limit local SQL to the workspace's registered results and controlled derived-result creation. Restrict external access, extension loading, filesystem/network table functions, attachment, and arbitrary export destinations. A read-only SQL statement is not by itself a filesystem sandbox.
 - Treat warehouse strings, descriptions, and query results as source data rather than executable instructions.
@@ -168,7 +169,7 @@ Use the example to identify missing reusable capabilities and distinguish tool d
 
 ## Decisions remaining
 
-- Confirm the supported type mapping and native dependency packaging during the technical spike.
+- Native dependency packaging and representative type mappings are verified on macOS arm64. Saved HUGEINT/UHUGEINT aggregates convert to exact DECIMAL(38,0); out-of-range/unsupported saved types fail. Cross-platform builds remain unverified.
 - Tune configurable byte, row, disk, and runtime defaults using small representative queries; this does not require solving the h2x analysis first.
 - Choose an open-source license before public release.
 

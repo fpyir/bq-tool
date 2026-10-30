@@ -2,7 +2,7 @@ import { DuckDBInstance } from "@duckdb/node-api";
 import type { Field, Row } from "./bigquery.ts";
 import { PROBE_CHECK_SQL } from "./probe-sql.ts";
 
-function identifier(name: string): string {
+export function identifier(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 

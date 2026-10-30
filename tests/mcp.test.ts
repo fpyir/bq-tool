@@ -15,7 +15,7 @@ test("a real stdio client discovers schemas and executes the shared local operat
   try {
     await client.connect(transport);
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["cancel_run", "check_runtime", "describe_table", "dry_run_query", "get_run", "list_datasets", "list_tables", "probe_bigquery", "run_query"]);
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["cancel_run", "check_runtime", "describe_result", "describe_table", "dry_run_query", "get_run", "list_datasets", "list_results", "list_tables", "open_workspace", "probe_bigquery", "query_local", "run_query", "save_query", "save_run"]);
     for (const tool of tools) assert.ok(tool.outputSchema);
     const result = await client.callTool({ name: "check_runtime", arguments: {} });
     assert.notEqual(result.isError, true);

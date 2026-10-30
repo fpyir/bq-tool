@@ -3,6 +3,8 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { probeInputSchema } from "./bigquery.ts";
 import { checkRuntime, probeBigQuery, probeResultSchema, runtimeSchema } from "./core.ts";
+import { Workspaces } from "./workspaces.ts";
+import { openWorkspaceInput, workspaceOutput, resultInput, resultOutput, listResultsInput, listResultsOutput, extractInput, saveRunInput, savedRunOutput, localInput, localOutput } from "./local-contracts.ts";
 import { Catalog } from "./catalog.ts";
 import { ReadQueries } from "./queries.ts";
 import { datasetsInput, datasetsOutput, tablesInput, tablesOutput, tableInput, tableOutput, queryInput, dryRunOutput, getRunInput, runRef, runOutput } from "./contracts.ts";
@@ -11,7 +13,32 @@ export function createServer() {
   const server = new McpServer({ name: "bq-tool", version: "0.0.1" });
   const catalog = new Catalog();
   const queries = new ReadQueries();
+  const workspaces = new Workspaces();
   const response = (result: Record<string, unknown>) => ({ content: [{ type: "text" as const, text: JSON.stringify(result) }], structuredContent: result });
+  server.registerTool("open_workspace", {
+    description: "Create or reopen an explicit local workspace path. Returns saved extraction run references for resume. Opening never refreshes results or changes an existing disk budget.", inputSchema: openWorkspaceInput, outputSchema: workspaceOutput,
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  }, async (input) => response(await (await workspaces.open(input)).describe()));
+  server.registerTool("list_results", {
+    description: "List one page of immutable result receipts, including deletion tombstones. Continue with nextAfter until null. No warehouse access.", inputSchema: listResultsInput, outputSchema: listResultsOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  }, async (input) => response(await workspaces.listResults(input)));
+  server.registerTool("describe_result", {
+    description: "Inspect saved SQL, schemas, receipt, lineage and a small preview. preview.complete distinguishes the preview from full saved data. No warehouse access.", inputSchema: resultInput, outputSchema: resultOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+  }, async (input) => response(await workspaces.describeResult(input)));
+  server.registerTool("save_query", {
+    description: "Dry-run/execute bounded GoogleSQL and save a complete Parquet snapshot in an existing workspace. Persists the job reference before retrieval. RUNNING jobs resume with save_run; never rerun SQL to poll. Default download caps: 100k rows/100 MiB.", inputSchema: extractInput, outputSchema: savedRunOutput,
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async (input) => response(await workspaces.extract(input)));
+  server.registerTool("save_run", {
+    description: "Resume an extraction registered in this workspace without resubmitting SQL. Completed saved snapshots are reused without warehouse calls. Failed/incomplete retrieval never publishes partial data.", inputSchema: saveRunInput, outputSchema: savedRunOutput,
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async (input) => response(await workspaces.saveRun(input)));
+  server.registerTool("query_local", {
+    description: "Run one DuckDB SELECT/WITH over explicitly selected {alias,resultId} inputs. No BigQuery calls. Returns complete bounded rows by default; save:true publishes a derived Parquet result with lineage and returns a preview. Filesystem/network readers and scripts are rejected.", inputSchema: localInput, outputSchema: localOutput,
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+  }, async (input) => response(await workspaces.queryLocal(input)));
   server.registerTool("list_datasets", {
     description: "List one page of accessible datasets; follow nextPageToken until null.", inputSchema: datasetsInput, outputSchema: datasetsOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },

@@ -4,6 +4,7 @@ import { checkRuntime, probeBigQuery } from "./core.ts";
 import { startMcp } from "./mcp.ts";
 import { Catalog } from "./catalog.ts";
 import { ReadQueries } from "./queries.ts";
+import { Workspaces } from "./workspaces.ts";
 import { ToolError } from "./contracts.ts";
 
 const help = `BQ Tool
@@ -18,6 +19,14 @@ Usage:
   bq-tool query --project PROJECT --location LOCATION --sql-file FILE
   bq-tool run --project PROJECT --location LOCATION --job-id ID [--wait-ms N]
   bq-tool cancel --project PROJECT --location LOCATION --job-id ID
+  bq-tool workspace --workspace PATH [--max-disk-bytes N]
+  bq-tool extract --workspace PATH --project PROJECT --location LOCATION --sql-file FILE
+  bq-tool save-run --workspace PATH --project PROJECT --location LOCATION --job-id ID
+  bq-tool results --workspace PATH [--after RESULT_ID --limit N]
+  bq-tool result --workspace PATH --result-id ID
+  bq-tool local --workspace PATH --inputs-file FILE --sql-file FILE [--save]
+  bq-tool delete-result --workspace PATH --result-id ID
+  bq-tool export --workspace PATH --result-id ID --destination PATH [--format parquet|csv|json|sql]
   bq-tool mcp
 
 Use --sql TEXT or --sql-file - to read SQL from stdin.
@@ -29,13 +38,23 @@ Poll RUNNING jobs with run; wait expiry does not cancel the query.
 BQ_TOOL_PROJECT and BQ_TOOL_LOCATION provide CLI defaults.
 `;
 
+const sqlFlags = ["sql", "sql-file"];
+const cloudQueryFlags = ["project", "location", ...sqlFlags, "parameters-file", "max-bytes-billed", "max-rows", "max-result-bytes", "timeout-ms", "wait-ms"];
 const commandFlags: Record<string, string[]> = {
   doctor: [], mcp: [], probe: ["project", "location"],
   datasets: ["project", "page-size", "page-token"],
   tables: ["project", "dataset", "search", "page-size", "page-token"],
   schema: ["project", "dataset", "table"],
-  "dry-run": ["project", "location", "sql", "sql-file", "parameters-file", "max-bytes-billed", "max-rows", "max-result-bytes", "timeout-ms", "wait-ms"],
-  query: ["project", "location", "sql", "sql-file", "parameters-file", "max-bytes-billed", "max-rows", "max-result-bytes", "timeout-ms", "wait-ms"],
+  "dry-run": cloudQueryFlags,
+  query: cloudQueryFlags,
+  extract: ["workspace", ...cloudQueryFlags],
+  workspace: ["workspace", "max-disk-bytes"],
+  "save-run": ["workspace", "project", "location", "job-id", "wait-ms"],
+  results: ["workspace", "after", "limit"],
+  result: ["workspace", "result-id"],
+  local: ["workspace", "inputs-file", ...sqlFlags, "save", "max-rows", "max-result-bytes", "timeout-ms"],
+  "delete-result": ["workspace", "result-id"],
+  export: ["workspace", "result-id", "destination", "format"],
   run: ["project", "location", "job-id", "wait-ms"],
   cancel: ["project", "location", "job-id"],
 };
@@ -57,10 +76,10 @@ async function boundedText(path: string) {
 }
 
 async function main() {
-  const stringOptions = Object.fromEntries([...new Set(Object.values(commandFlags).flat())].map((name) => [name, { type: "string" as const }]));
+  const stringOptions = Object.fromEntries([...new Set(Object.values(commandFlags).flat())].filter((name) => name !== "save").map((name) => [name, { type: "string" as const }]));
   const { values: parsedValues, positionals } = parseArgs({
     args: Bun.argv.slice(2), allowPositionals: true,
-    options: { ...stringOptions, help: { type: "boolean", short: "h" } },
+    options: { ...stringOptions, save: { type: "boolean" }, help: { type: "boolean", short: "h" } },
   });
   const values: Record<string, unknown> = parsedValues;
   if (values.help || positionals.length === 0) { await Bun.write(Bun.stdout, help); return; }
@@ -84,10 +103,38 @@ async function main() {
     if (!location) throw new Error("Supply --location or BQ_TOOL_LOCATION");
     return { project: project(), location };
   };
+  const workspace = () => {
+    const path = string("workspace");
+    if (!path) throw new Error("Supply --workspace PATH");
+    return path;
+  };
+  const sql = async () => {
+    const text = string("sql"), file = string("sql-file");
+    if ((text === undefined) === (file === undefined)) throw new Error("Supply exactly one of --sql or --sql-file");
+    return text ?? await boundedText(file!);
+  };
+  const workspaces = new Workspaces();
   const catalog = new Catalog();
   const queries = new ReadQueries();
   let result: unknown;
   if (command === "mcp") { startMcp(); return; }
+  else if (command === "workspace") result = await (await workspaces.open({ workspace: workspace(), maxDiskBytes: number("max-disk-bytes") })).describe();
+  else if (command === "results") result = await workspaces.listResults({ workspace: workspace(), after: string("after"), limit: number("limit") });
+  else if (command === "result") result = await workspaces.describeResult({ workspace: workspace(), resultId: string("result-id")! });
+  else if (command === "delete-result") result = await workspaces.deleteResult({ workspace: workspace(), resultId: string("result-id")! });
+  else if (command === "export") {
+    const format = string("format");
+    if (format && !["parquet", "csv", "json", "sql"].includes(format)) throw new Error("--format must be parquet, csv, json or sql");
+    result = await workspaces.exportResult({ workspace: workspace(), resultId: string("result-id")!, destination: string("destination")!, format: format as "parquet" | "csv" | "json" | "sql" | undefined });
+  } else if (command === "save-run") result = await workspaces.saveRun({ workspace: workspace(), run: { ...connection(), jobId: string("job-id")! }, waitMs: number("wait-ms") });
+  else if (command === "local") {
+    const inputsFile = string("inputs-file");
+    if (!inputsFile) throw new Error("Supply --inputs-file with alias/resultId pairs");
+    if (inputsFile === "-" && string("sql-file") === "-") throw new Error("SQL and inputs cannot both read stdin");
+    result = await workspaces.queryLocal({ workspace: workspace(), inputs: JSON.parse(await boundedText(inputsFile)), sql: await sql(), save: values.save === true,
+      maxRows: number("max-rows"), maxResultBytes: number("max-result-bytes"), timeoutMs: number("timeout-ms"),
+    });
+  }
   else if (command === "doctor") result = await checkRuntime();
   else if (command === "probe") result = await probeBigQuery(connection());
   else if (command === "datasets" || command === "tables") {
@@ -99,18 +146,16 @@ async function main() {
     const ref = { ...connection(), jobId: string("job-id")! };
     result = command === "run" ? await queries.get({ ...ref, waitMs: number("wait-ms") }) : await queries.cancel(ref);
   } else {
-    const sqlText = string("sql");
     const sqlFile = string("sql-file");
-    if ((sqlText === undefined) === (sqlFile === undefined)) throw new Error("Supply exactly one of --sql or --sql-file");
     const parametersFile = string("parameters-file");
     if (parametersFile === "-" && sqlFile === "-") throw new Error("SQL and parameters cannot both read stdin");
     const input = {
-      ...connection(), sql: sqlText ?? await boundedText(sqlFile!),
+      ...connection(), sql: await sql(),
       parameters: parametersFile ? JSON.parse(await boundedText(parametersFile)) : [],
       maximumBytesBilled: string("max-bytes-billed"), maxRows: number("max-rows"),
       maxResultBytes: number("max-result-bytes"), timeoutMs: number("timeout-ms"), waitMs: number("wait-ms"),
     };
-    result = command === "dry-run" ? await queries.dryRun(input) : await queries.run(input);
+    result = command === "dry-run" ? await queries.dryRun(input) : command === "extract" ? await workspaces.extract({ ...input, workspace: workspace() }) : await queries.run(input);
   }
   await Bun.write(Bun.stdout, `${JSON.stringify(result, null, 2)}\n`);
   if (result && typeof result === "object" && "state" in result && ["FAILED", "LIMIT_EXCEEDED"].includes(String(result.state))) process.exitCode = 2;

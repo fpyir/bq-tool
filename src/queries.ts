@@ -78,11 +78,16 @@ export class ReadQueries {
     });
   }
 
-  async run(raw: z.input<typeof queryInput>) {
+  async submit(raw: z.input<typeof queryInput>) {
     const input = queryInput.parse(raw);
     await this.dryRun(input);
     const [job] = await this.client(input.project, input.location).createQueryJob(options(input));
-    const ref = runRef.parse({ project: input.project, location: input.location, jobId: job.id });
+    return runRef.parse({ project: input.project, location: input.location, jobId: job.id });
+  }
+
+  async run(raw: z.input<typeof queryInput>) {
+    const input = queryInput.parse(raw);
+    const ref = await this.submit(input);
     try { return await this.get({ ...ref, waitMs: input.waitMs }); }
     catch (error) {
       throw new ToolError("RUN_READ", `Query submitted as ${JSON.stringify(ref)}. Retry get_run; ${error instanceof Error ? error.message : String(error)}`);

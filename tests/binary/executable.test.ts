@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { probeInputSchema } from "../../src/bigquery.ts";
 import { probeResultSchema, runtimeSchema } from "../../src/core.ts";
 import { packagedStdioParameters } from "../stdio.ts";
+import { exerciseLocal } from "../local-workflow.ts";
 import { exerciseWarehouse } from "../live/warehouse-check.ts";
 
 async function verifyExecutable(live: boolean) {
@@ -48,10 +49,11 @@ async function verifyExecutable(live: boolean) {
     });
     await client.connect(transport);
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["cancel_run", "check_runtime", "describe_table", "dry_run_query", "get_run", "list_datasets", "list_tables", "probe_bigquery", "run_query"]);
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["cancel_run", "check_runtime", "describe_result", "describe_table", "dry_run_query", "get_run", "list_datasets", "list_results", "list_tables", "open_workspace", "probe_bigquery", "query_local", "run_query", "save_query", "save_run"]);
     const result = await client.callTool({ name: "check_runtime", arguments: {} });
     assert.notEqual(result.isError, true);
     assert.deepEqual(runtimeSchema.parse(result.structuredContent), runtime);
+    await exerciseLocal([join(bin, "bq-tool")], { ...await packagedStdioParameters(root), env });
     if (live) {
       const input = probeInputSchema.parse({ project: Bun.env.BQ_TOOL_PROJECT, location: Bun.env.BQ_TOOL_LOCATION });
       const cliResult = probeResultSchema.parse(run("probe", "--project", input.project, "--location", input.location));

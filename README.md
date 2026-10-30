@@ -1,6 +1,6 @@
 # BQ Tool
 
-A prototype CLI and local MCP server for agent-driven BigQuery analysis. Milestone 1 provides schema discovery, bounded read-only queries, polling, cancellation and execution receipts through the shared CLI/MCP core. The diagnostic probe also verifies exact BigQuery → DuckDB transfer.
+A prototype CLI and local MCP server for agent-driven BigQuery analysis. Milestones 1 and 2 provide schema discovery, bounded read-only queries, saved Parquet results, reusable local workspaces and DuckDB follow-up queries through the shared CLI/MCP core. The diagnostic probe also verifies exact BigQuery → DuckDB transfer.
 
 ## Build and install the CLI
 
@@ -64,7 +64,7 @@ Every execution first passes the BigQuery dialect parser, a builtin-function all
 | `--timeout-ms` | `30000` | BigQuery job timeout; configurable from 1 second to 10 minutes |
 | `--wait-ms` | `1000` on query, `0` on run | Client polling window, from 0 to 10 seconds |
 
-A SQL LIMIT controls returned rows; it does not replace a scan-byte cap. These limits bound inline result acceptance, not an individual network page or the cost of already completed processing. A result exceeding the row/byte cap returns `LIMIT_EXCEEDED` with no partial rows. Milestone 1 saves no local datasets.
+A SQL LIMIT controls returned rows; it does not replace a scan-byte cap. These limits bound inline result acceptance, not an individual network page or the cost of already completed processing. A result exceeding the row/byte cap returns `LIMIT_EXCEEDED` with no partial rows. Use `extract` to save a complete snapshot in a workspace; `query` returns inline data.
 
 Query output includes `state`, a `run` reference, and a `receipt` with SQL, named parameters, configured limits, source references reported by BigQuery, execution timestamps, scanned/billed bytes and cache status. `SUCCEEDED` results include schema, exact JSON-safe values, total row count and `complete: true`. A larger job can return `RUNNING`:
 
@@ -88,6 +88,80 @@ bq-tool query --project your-project-id --location australia-southeast1 --sql 'S
 ```
 
 Supported parameter types are STRING, INT64, FLOAT64, BOOL, NUMERIC, BIGNUMERIC, DATE, DATETIME, TIME, TIMESTAMP and JSON. Strings preserve exact integers/decimals; parameters are bound through BigQuery's API rather than interpolated into SQL.
+
+## Save results and continue locally
+
+Create an explicitly named workspace outside the plugin checkout, then extract bounded data:
+
+```sh
+bq-tool workspace --workspace /absolute/path/analysis
+bq-tool extract --workspace /absolute/path/analysis \
+  --project your-project-id --location australia-southeast1 \
+  --sql 'SELECT event_date, COUNT(*) AS n FROM analytics.events GROUP BY event_date' \
+  --wait-ms 10000
+bq-tool results --workspace /absolute/path/analysis
+bq-tool result --workspace /absolute/path/analysis --result-id r_RESULT_ID
+```
+
+`extract` accepts the same SQL, named parameters, scan cap and timeout settings as `query`. Its materialization defaults are **100,000 rows and 100 MiB of decoded data**. It saves the complete result, returns a result ID and artifact paths, and exposes a preview of at most 10 rows / 64 KiB. `preview.complete` says whether the preview covers every saved row. No row/byte limit is silently applied as a SQL LIMIT.
+
+If extraction returns `RUNNING`, resume retrieval with the returned job reference:
+
+```sh
+bq-tool save-run --workspace /absolute/path/analysis \
+  --project your-project-id --location australia-southeast1 --job-id JOB_ID --wait-ms 10000
+```
+
+The run reference, SQL, parameters and submission limits are written before polling or downloading pages. Reopening `workspace` lists its registered extraction runs. `save-run` never submits SQL again; it retrieves that job or reuses its already saved result without contacting BigQuery. Limits are fixed by the original job. Failed or incomplete retrieval publishes no result; retry the same reference. An interrupted conversion can leave private staging files, which the next write removes. A fresh `extract` explicitly refreshes the data into a new snapshot.
+
+For local SQL, create an inputs JSON file assigning table aliases to saved result IDs:
+
+```json
+[{"alias":"events","resultId":"r_RESULT_ID"}]
+```
+
+```sh
+bq-tool local --workspace /absolute/path/analysis --inputs-file inputs.json \
+  --sql 'SELECT SUM(n) AS total FROM events'
+bq-tool local --workspace /absolute/path/analysis --inputs-file inputs.json \
+  --sql 'SELECT event_date, n FROM events WHERE n > 10' --save
+```
+
+Join multiple results by adding more aliases to that file. Each local operation takes its workspace and inputs explicitly. It requires no Google credentials or warehouse connection. Without `--save`, it returns all complete bounded rows; with `--save`, it publishes a derived Parquet result and returns its preview and receipt. Local output defaults to 1,000 rows / 1 MiB; set `--max-rows` and `--max-result-bytes` explicitly for larger derived results, up to 100,000 rows / 100 MiB. Derived receipts record selected parent IDs, checksums, parent SQL, local SQL and execution limits.
+
+Local queries accept one DuckDB SELECT/WITH statement over the chosen aliases, CTEs, and `UNNEST`. DuckDB's own parser checks admission; filesystem/network table functions, dynamic SQL, catalog tables, scripts, writes, attachment and extension loading are rejected. Each operation uses a fresh in-memory engine with external access disabled, only registered artifact paths allowed, locked configuration, 256 MiB DuckDB memory, two threads and disk spilling disabled. `--timeout-ms` defaults to 30 seconds, configurable from 10 ms to 60 seconds, and interrupts the engine on expiry. The memory setting bounds DuckDB's buffer management, not total process RSS. Output caps bound accepted decoded data rather than the size of an individual value allocated by the engine.
+
+### Workspace files, limits and exports
+
+```text
+workspace.json
+runs/r_<id>.json
+results/r_<id>/data.parquet
+results/r_<id>/receipt.json
+results/r_<id>/query.sql
+```
+
+Results publish by atomic directory rename only after complete download, conversion, checksum and receipt creation. Readers see complete results; parallel writers receive `WORKSPACE_BUSY` and can retry. Dead-process write locks are recovered on the next write. Parquet checksums are verified before reuse. Schema or integrity failures produce errors instead of silently repairing data.
+
+Workspace metadata uses format version 1. Each result carries both its stored DuckDB schema and original BigQuery schema, where applicable. Warehouse receipts retain project/location/job ID, SQL, parameters, limits, timestamps, source references, scan/billing bytes and cache status. Available source table metadata is captured after retrieval; lookup errors are retained explicitly. Modification timestamps describe observations, not ingestion watermarks or historical coverage.
+
+Large integers and decimals remain strings in JSON responses. Typed Parquet retains native lists, structs, exact NUMERIC values and microsecond timestamps; BigQuery BIGNUMERIC remains VARCHAR. UTC TIMESTAMP becomes TIMESTAMPTZ, while DATETIME remains timezone-free. For saved derived results, DuckDB HUGEINT/UHUGEINT values, including nested values, convert to DECIMAL(38,0) to avoid Parquet floating-point conversion. Values outside that precision and unsupported saved types (such as INTERVAL, UNION or fixed-size arrays) fail explicitly. Other supported saved types are ordinary integers, booleans, floating point, strings/JSON, blobs, decimals, dates, times, timestamps, lists, named structs and maps. Local JSON temporal formatting follows DuckDB; exact values are retained.
+
+The default workspace disk budget is **1 GiB**. Choose a budget at creation with `workspace --max-disk-bytes N` (1 MiB to 10 GiB); opening an existing workspace never changes it. Writes reserve a conservative estimate before work and check actual workspace usage before publishing. This is an application budget, not an OS filesystem quota. Each workspace allows 1,000 registered warehouse extraction runs; use another workspace afterwards. `results --limit N --after RESULT_ID` paginates receipts and deletion tombstones. Incomplete staging directories are never listed as results.
+
+Delete data or export a complete result explicitly:
+
+```sh
+bq-tool export --workspace /absolute/path/analysis --result-id r_RESULT_ID \
+  --destination /absolute/path/export.parquet
+bq-tool export --workspace /absolute/path/analysis --result-id r_RESULT_ID \
+  --destination /absolute/path/export.csv --format csv
+bq-tool export --workspace /absolute/path/analysis --result-id r_RESULT_ID \
+  --destination /absolute/path/query.sql --format sql
+bq-tool delete-result --workspace /absolute/path/analysis --result-id r_RESULT_ID
+```
+
+Exports support `parquet`, `csv`, `json` (an array) and `sql`, require a new destination outside the managed workspace, and never overwrite an existing file. Parquet retains types; CSV/JSON consumers must handle numeric precision themselves. SQL parameter values remain in the receipt. Deletion removes the Parquet file but retains SQL, receipt and a tombstone. Derived snapshots remain usable after a parent is deleted, and their lineage still identifies that input. A deleted extraction is not silently downloaded again.
 
 ## Probe BigQuery and local type transfer
 
@@ -129,9 +203,15 @@ This is a stdio process; a client sends MCP messages over stdin. Stdout contains
 | `run_query` | Same as dry run | Execute a bounded read query |
 | `get_run` | `project`, `location`, `jobId`, optional `waitMs` | Poll or retrieve a complete bounded result |
 | `cancel_run` | `project`, `location`, `jobId` | Request cancellation |
+| `open_workspace` | `workspace`, optional `maxDiskBytes` | Create/reopen an explicit local workspace and list registered extraction runs |
+| `save_query` | `workspace` plus query inputs | Execute and publish a complete Parquet snapshot |
+| `save_run` | `workspace`, `run: {project, location, jobId}`, optional `waitMs` | Resume retrieval or reuse the existing snapshot |
+| `list_results` | `workspace`, optional `limit`/`after` | Page through saved receipts and tombstones |
+| `describe_result` | `workspace`, `resultId` | Inspect schemas, SQL, receipt, lineage, preview and artifact paths |
+| `query_local` | `workspace`, `inputs: [{alias, resultId}]`, `sql`, optional `save`/limits | Query selected Parquet results; optionally save a derivative |
 | `probe_bigquery` | `{"project":"your-project-id","location":"australia-southeast1"}` | Runs the same live diagnostic as `probe` |
 
-All tools advertise input/output schemas and return structured content. MCP inputs are explicit; CLI environment-variable defaults do not apply to tool arguments. Query settings use `maximumBytesBilled` (a decimal string), `maxRows`, `maxResultBytes`, `timeoutMs`, `waitMs` and `parameters`, matching the CLI behavior. The server uses the current MCP SDK's stdio entry point.
+All tools advertise input/output schemas and return structured content. MCP inputs are explicit; CLI environment-variable defaults do not apply to tool arguments. Query settings use `maximumBytesBilled` (a decimal string), `maxRows`, `maxResultBytes`, `timeoutMs`, `waitMs` and `parameters`, matching the CLI behavior. The server uses the current MCP SDK's stdio entry point. `save_query` uses the larger extraction defaults; `query_local` uses the smaller inline defaults even when `save: true`. Local deletion and exports are CLI commands.
 
 For a client with a direct stdio configuration, set `command` to the absolute path of the installed `bq-tool` executable and `args` to `["mcp"]`. Ensure the launched process can discover ADC.
 
@@ -150,7 +230,7 @@ bun run typecheck
 bun test
 ```
 
-Typechecking uses Bun’s built-in [`bun check`](https://bun.sh/docs/runtime/check). Development tests run TypeScript directly; executable packaging is a separate build step. The default `bun:test` suite runs without Google credentials. It exercises catalog pagination, recursive schemas, SQL/source admission, budgets, result pagination, exact decoding, failure/cancellation states, CLI failures and real stdio tool discovery. Live checks are skipped unless explicitly enabled.
+Typechecking uses Bun’s built-in [`bun check`](https://bun.sh/docs/runtime/check). Development tests run TypeScript directly; executable packaging is a separate build step. The default `bun:test` suite runs without Google credentials. It exercises catalog pagination, recursive schemas, SQL/source admission, budgets, result pagination, exact decoding, failure/cancellation states, CLI failures and real stdio tool discovery. It also checks Parquet fidelity, joins/lineage, fresh-process resume with invalid Google credentials, interrupted retrieval, atomic publication, local policy/budgets, checksums, deletion and exports. Live checks are skipped unless explicitly enabled.
 
 Test the standalone executable:
 
@@ -158,7 +238,7 @@ Test the standalone executable:
 bun run test:binary
 ```
 
-This builds the binary, copies it into an isolated directory without sources or dependencies, and checks CLI and MCP behavior with no Bun on PATH. Binary checks are skipped in the default source test suite.
+This builds the binary, copies it into an isolated directory without sources or dependencies, and checks CLI and MCP behavior with no Bun on PATH, including saved-result joins, derived Parquet publication and fresh-process resume. Binary checks are skipped in the default source test suite.
 
 Live suites are opt-in and create diagnostic query jobs:
 
@@ -167,10 +247,10 @@ BQ_TOOL_PROJECT=your-project-id BQ_TOOL_LOCATION=australia-southeast1 bun run te
 BQ_TOOL_PROJECT=your-project-id BQ_TOOL_LOCATION=australia-southeast1 bun run test:binary:live
 ```
 
-To include real schema/query checks, also set `BQ_TOOL_LIVE_DATASET` and `BQ_TOOL_LIVE_TABLE` to a native table in the configured project. The suite reads metadata, performs bounded COUNT aggregates, checks named parameters and verifies polling/result limits through both entry points. Warehouse checks are skipped when these two variables are absent.
+To include real schema/query checks, also set `BQ_TOOL_LIVE_DATASET` and `BQ_TOOL_LIVE_TABLE` to a native table in the configured project. The suite reads metadata, performs bounded COUNT aggregates, checks named parameters, extracts complete Parquet snapshots, joins them locally, saves derivatives, resumes snapshots and verifies polling/result limits through both entry points. Warehouse checks are skipped when these two variables are absent.
 
 The live scripts set `BQ_TOOL_LIVE=1` and compare the CLI and MCP probe results. `test:live` exercises source execution; `test:binary:live` exercises the copied standalone executable. Manual host/UI testing belongs to the user.
 
 ## Scope
 
-Discovery and supported read-query execution are implemented. Saved Parquet results, reusable local workspaces and local follow-up SQL remain Milestone 2. The analysis skill and final plugin distribution remain Milestone 3. See [MVP_PLAN.md](MVP_PLAN.md) for the agreed scope and milestones.
+Discovery, bounded warehouse queries, saved Parquet results, reusable local workspaces and local follow-up SQL are implemented through CLI and MCP. The analysis skill and final plugin distribution remain Milestone 3. See [MVP_PLAN.md](MVP_PLAN.md) for the agreed scope and milestones.

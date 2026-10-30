@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { savedRunOutput, localOutput } from "../../src/local-contracts.ts";
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -6,6 +10,8 @@ import { datasetsOutput, tablesOutput, tableInput, tableOutput, dryRunOutput, ru
 import { connectionSchema } from "../../src/connection.ts";
 
 export async function exerciseWarehouse(cli: string[], server: StdioServerParameters) {
+  const localRoot = await mkdtemp(join(tmpdir(), "bq-live-workspace-"));
+  const workspace = join(localRoot, "workspace");
   const connection = connectionSchema.parse({ project: Bun.env.BQ_TOOL_PROJECT, location: Bun.env.BQ_TOOL_LOCATION });
   const target = tableInput.parse({ project: connection.project, dataset: Bun.env.BQ_TOOL_LIVE_DATASET, table: Bun.env.BQ_TOOL_LIVE_TABLE });
   const args = ["--project", connection.project, "--location", connection.location];
@@ -55,6 +61,24 @@ export async function exerciseWarehouse(cli: string[], server: StdioServerParame
     assert.deepEqual(cliPoll.result, mcpResult.result);
     const cancelled = runOutput.parse(await call("cancel_run", mcpResult.run));
     assert.equal(cancelled.state, "SUCCEEDED"); // A completed job must not claim it was cancelled.
+    runCli("workspace", "--workspace", workspace);
+    const extracted = savedRunOutput.parse(runCli("extract", "--workspace", workspace, ...args, "--sql", sql, "--max-bytes-billed", "67108864", "--wait-ms", "10000"));
+    const mcpSaved = savedRunOutput.parse(await call("save_query", { workspace, ...input }));
+    assert.equal(extracted.state, "SUCCEEDED"); assert.equal(mcpSaved.state, "SUCCEEDED");
+    assert.deepEqual(extracted.result!.preview.rows, cliResult.result!.rows);
+    assert.deepEqual(mcpSaved.result!.preview.rows, cliResult.result!.rows);
+    const inputs = [{ alias: "a", resultId: extracted.result!.resultId }, { alias: "b", resultId: mcpSaved.result!.resultId }];
+    const inputsFile = join(localRoot, "inputs.json");
+    await Bun.write(inputsFile, JSON.stringify(inputs));
+    const localSql = "SELECT SUM(a.n + b.n) AS total FROM a CROSS JOIN b";
+    const derived = localOutput.parse(runCli("local", "--workspace", workspace, "--inputs-file", inputsFile, "--sql", localSql, "--save"));
+    const localMcp = localOutput.parse(await call("query_local", { workspace, inputs, sql: localSql, save: true }));
+    assert.deepEqual(derived.preview, localMcp.preview);
+    assert.equal(derived.preview.rows[0]!.total, String(BigInt(String(cliResult.result!.rows[0]!.n)) * 2n));
+    const savedPoll = savedRunOutput.parse(runCli("save-run", "--workspace", workspace, ...args, "--job-id", extracted.run.jobId));
+    assert.equal(savedPoll.result!.resultId, extracted.result!.resultId);
+    const mcpResume = savedRunOutput.parse(await call("save_run", { workspace, run: mcpSaved.run }));
+    assert.equal(mcpResume.result!.sha256, mcpSaved.result!.sha256);
     const parameters = [{ name: "n", type: "INT64", value: "9007199254740993" }, { name: "nil", type: "STRING", value: null }];
     const parameterized = runOutput.parse(await call("run_query", { ...connection, sql: "SELECT @n AS n, @nil AS nil", parameters, waitMs: 10_000 }));
     assert.deepEqual(parameterized.result?.rows, [{ n: "9007199254740993", nil: null }]);
@@ -64,5 +88,6 @@ export async function exerciseWarehouse(cli: string[], server: StdioServerParame
   } finally {
     await client.close();
     await transport.close();
+    await rm(localRoot, { recursive: true, force: true });
   }
 }
