@@ -64,7 +64,7 @@ For **Codex desktop**, restart the app after registering the local marketplace, 
 
 For **ChatGPT desktop**, use a local Work chat. Open Plugins, find BQ Tool in the local marketplace, install/enable it, then start a new local chat. Availability can depend on the host version and workspace policy; if the local catalog is absent, check `codex plugin marketplace list` and the [official plugin surface guide](https://learn.chatgpt.com/docs/plugins). This package requires a local executor and does not provide a cloud/web endpoint.
 
-The host copies the plugin to `~/.codex/plugins/cache/bq-tool-local/bq-tool/local/`. Its `mcp.json` launches the executable relative to that installed copy via `${PLUGIN_ROOT}`. Do not point the manifest at this repository or a global Bun installation. The cache behavior and local catalog layout follow the [official packaging guide](https://developers.openai.com/plugins/build/plugins).
+Use the `installedPath` returned by `codex plugin add --json` to locate the cached plugin. The CLI installation verified here uses `~/.codex/plugins/cache/bq-tool-local/bq-tool/0.0.1/`; the cache suffix is chosen by the host. Its `mcp.json` launches the executable relative to that installed copy via `${PLUGIN_ROOT}`. Do not point the manifest at this repository or a global Bun installation. The cache behavior and local catalog layout follow the [official packaging guide](https://developers.openai.com/plugins/build/plugins).
 
 These instructions prepare the installation; the desktop UI checks in [ACCEPTANCE.md](ACCEPTANCE.md) are performed by the user. Automated tests verify unpacking, cache-copy launch, stdio tools and local workflows without using desktop UI automation.
 
