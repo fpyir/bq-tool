@@ -1,0 +1,33 @@
+{
+  "name": "bq-tool",
+  "version": "0.0.1",
+  "description": "BigQuery analysis tools for agents",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bq-tool": "dist/bq-tool"
+  },
+  "engines": {
+    "bun": ">=1.4.3"
+  },
+  "packageManager": "bun@1.4.3",
+  "scripts": {
+    "build": "bun check && bun scripts/build.ts",
+    "typecheck": "bun check",
+    "test": "bun test",
+    "test:live": "BQ_TOOL_LIVE=1 bun test ./tests/live",
+    "test:binary": "bun run build && BQ_TOOL_BINARY=1 bun test ./tests/binary",
+    "test:binary:live": "bun run build && BQ_TOOL_BINARY=1 BQ_TOOL_LIVE=1 bun test ./tests/binary",
+    "dev": "bun src/cli.ts"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "2.0.0-r.1",
+    "@google-cloud/bigquery": "9.5.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/bun": "1.4.4"
+  }
+}

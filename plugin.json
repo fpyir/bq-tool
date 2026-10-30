@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bq-tool",
+  "version": "0.0.1",
+  "description": "Check BigQuery connectivity and exact local analysis in DuckDB.",
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "BQ Tool",
+        "shortDescription": "BigQuery and DuckDB tools for agents",
+        "category": "Productivity"
+      }
+    }
+  }
+}

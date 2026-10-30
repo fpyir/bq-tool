@@ -48,7 +48,7 @@ Saved results are snapshots. Reusing one never silently refreshes it. Refreshing
 
 ## Architecture
 
-Use TypeScript on Node.js, the official BigQuery client, the official MCP SDK, and DuckDB's Node client. Node.js is the proposed runtime; the initial technical spike must verify installation and native DuckDB packaging on the target desktop.
+Use TypeScript on Bun, the official BigQuery client, the official MCP SDK, and DuckDB's JavaScript client. Development runs directly from TypeScript. Distribution uses Bun's single-file executable build, including DuckDB's native addon and shared library, so installed CLI and MCP commands need no separate Bun or dependency installation. Bun supplies dependency installation, the test runner, and `bun check` for typechecking. The technical spike verifies native DuckDB and stdio transport support on the target desktop.
 
 ```text
 Codex / ChatGPT desktop
@@ -116,7 +116,7 @@ The public repository contains generic configuration examples and synthetic data
 
 ## Plugin packaging and distribution
 
-Use root `plugin.json`, `mcp.json`, `skills/`, and optional assets following the [portable plugin packaging guide](https://developers.openai.com/plugins/build/plugins). Package a local stdio server and its dependencies, with a repo marketplace entry for development installation. Verify that the installed copy runs independently of the source checkout; the host loads a cached plugin copy.
+Use root `plugin.json`, `mcp.json`, `skills/`, and optional assets following the [portable plugin packaging guide](https://developers.openai.com/plugins/build/plugins). The MCP manifest launches the packaged `bq-tool mcp` executable. Build on the target host and test a copy outside the checkout with no Bun on PATH. Native DuckDB files are embedded and extracted into a private temporary directory for loading. Repo marketplace distribution and manual desktop installation remain milestone 3; verify that the host's cached plugin copy contains the executable.
 
 No custom UI or lifecycle hooks are needed for this prototype. Test a fresh local installation in both target hosts. Manual host and UI testing belongs to the user unless explicitly delegated.
 
