@@ -2,15 +2,37 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "bq-tool",
   "version": "0.0.1",
-  "description": "Check BigQuery connectivity and exact local analysis in DuckDB.",
+  "description": "Discover BigQuery data, save bounded query results, and continue analysis locally with DuckDB.",
   "extensions": {
     "com.openai": {
       "requires_local_executor": true,
       "interface": {
         "displayName": "BQ Tool",
         "shortDescription": "BigQuery and DuckDB tools for agents",
-        "category": "Productivity"
+        "category": "Productivity",
+        "longDescription": "Discover warehouse schemas, run bounded read-only BigQuery queries, and reuse complete Parquet snapshots across chats with local DuckDB analysis and traceable receipts. Runs on your computer using Google Application Default Credentials.",
+        "developerName": "BQ Tool contributors",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Use BQ Tool to discover tables in my BigQuery project and plan a bounded extraction.",
+          "Reopen my BQ Tool workspace and answer a follow-up using saved results.",
+          "Use BQ Tool to join saved results locally and show their lineage."
+        ]
       }
     }
-  }
+  },
+  "author": {
+    "name": "BQ Tool contributors",
+    "url": "https://github.com/fpyir/bq-tool"
+  },
+  "homepage": "https://github.com/fpyir/bq-tool",
+  "repository": "https://github.com/fpyir/bq-tool",
+  "keywords": [
+    "bigquery",
+    "duckdb",
+    "data-analysis"
+  ]
 }

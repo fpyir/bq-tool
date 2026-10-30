@@ -1,6 +1,6 @@
 # BQ Tool prototype plan
 
-Status: Milestones 0 and 1 are complete and committed. Milestone 2 implements complete Parquet snapshots, explicit reusable workspaces, bounded DuckDB queries, derived-result lineage, resume, deletion and exports through the shared core. Plugin delivery remains Milestone 3.
+Status: Milestones 0–2 are complete and committed. Milestone 3 implements the focused analysis skill, portable plugin metadata, local marketplace, self-contained archive, synthetic workspace and installation docs. Automated package checks verify cache-copy execution; manual Codex/ChatGPT desktop installation, skill selection and credential inheritance remain pending user verification.
 
 BQ Tool gives agents a repeatable workflow for discovering BigQuery data, running bounded read queries, keeping useful results locally, and answering follow-up questions with traceable evidence. The first delivery is an open-source plugin for local Codex and ChatGPT desktop, backed by a CLI and one shared implementation.
 
@@ -118,7 +118,7 @@ The public repository contains generic configuration examples and synthetic data
 
 ## Plugin packaging and distribution
 
-Use root `plugin.json`, `mcp.json`, `skills/`, and optional assets following the [portable plugin packaging guide](https://developers.openai.com/plugins/build/plugins). The MCP manifest launches the packaged `bq-tool mcp` executable. Build on the target host and test a copy outside the checkout with no Bun on PATH. Native DuckDB files are embedded and extracted into a private temporary directory for loading. Repo marketplace distribution and manual desktop installation remain milestone 3; verify that the host's cached plugin copy contains the executable.
+Use root `plugin.json`, `mcp.json`, `skills/`, and optional assets following the [portable plugin packaging guide](https://developers.openai.com/plugins/build/plugins). The MCP manifest launches the packaged `bq-tool mcp` executable. Build on the target host and test a copy outside the checkout with no Bun on PATH. Native DuckDB files are embedded and extracted into a private temporary directory for loading. The package command builds `dist/plugin` as a complete local marketplace and creates a target-specific archive/checksums. The repository catalog points at the built plugin. Synthetic fixtures and automated archive/cache-copy checks require no warehouse credentials. Verify desktop skill behavior and actual host credential inheritance with the user using `docs/ACCEPTANCE.md`.
 
 No custom UI or lifecycle hooks are needed for this prototype. Test a fresh local installation in both target hosts. Manual host and UI testing belongs to the user unless explicitly delegated.
 
@@ -166,6 +166,13 @@ The agent establishes business definitions, joins, regional production URLs, and
 The warehouse inspection found potentially useful history sources, but eligibility evidence, history coverage, and scan budgets need investigation during the analysis. Those findings affect the example's outcome, not the prototype's architecture or delivery gates. If a query needs a higher explicit limit or the source needs preparation, record that as analysis setup; do not make warehouse changes or raise limits implicitly.
 
 Use the example to identify missing reusable capabilities and distinguish tool defects from agent reasoning errors or source-data limitations. Record its outcome separately from the general prototype checks.
+
+## Prototype delivery status
+
+- `skills/bq-analysis` provides the focused discovery/extract/reuse/evidence workflow, with an optional tool reference and private Markdown context template.
+- `bun run package` creates the portable plugin, marketplace catalog, executable, generated synthetic Parquet workspace, docs, build metadata and checksums. It copies only explicitly listed public files.
+- `bun run test:plugin` checks archive extraction, executable modes, local references, installed manifest resolution, synthetic joins, saved derivatives and resume outside the checkout. The live variant also checks warehouse extraction through the cached copy.
+- `docs/INSTALL.md` documents local installation and refresh; `docs/ACCEPTANCE.md` defines direct/indirect/follow-up/negative/boundary host checks. Manual desktop validation is pending and must be recorded from actual user runs.
 
 ## Decisions remaining
 

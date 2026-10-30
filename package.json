@@ -18,7 +18,10 @@
     "test:live": "BQ_TOOL_LIVE=1 bun test ./tests/live",
     "test:binary": "bun run build && BQ_TOOL_BINARY=1 bun test ./tests/binary",
     "test:binary:live": "bun run build && BQ_TOOL_BINARY=1 BQ_TOOL_LIVE=1 bun test ./tests/binary",
-    "dev": "bun src/cli.ts"
+    "dev": "bun src/cli.ts",
+    "package": "bun run build && bun scripts/package.ts",
+    "test:plugin": "bun run package && BQ_TOOL_PLUGIN=1 bun test ./tests/plugin",
+    "test:plugin:live": "bun run package && BQ_TOOL_PLUGIN=1 BQ_TOOL_LIVE=1 bun test ./tests/plugin"
   },
   "dependencies": {
     "@duckdb/node-api": "2.0.0-r.1",

@@ -19,6 +19,7 @@ async function verifyExecutable(live: boolean) {
   mkdirSync(bin);
   mkdirSync(temporary);
   copyFileSync(fileURLToPath(new URL("../../dist/bq-tool", import.meta.url)), join(bin, "bq-tool"));
+  copyFileSync(fileURLToPath(new URL("../../mcp.json", import.meta.url)), join(root, "mcp.json"));
   const env = {
     ...Object.fromEntries(Object.entries(Bun.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
     PATH: bin,

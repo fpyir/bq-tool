@@ -1,0 +1,12 @@
+{
+  "name": "bq-tool-local",
+  "interface": { "displayName": "BQ Tool (local)" },
+  "plugins": [
+    {
+      "name": "bq-tool",
+      "source": { "source": "local", "path": "./dist/plugin/plugins/bq-tool" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}

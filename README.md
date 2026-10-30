@@ -2,6 +2,19 @@
 
 A prototype CLI and local MCP server for agent-driven BigQuery analysis. Milestones 1 and 2 provide schema discovery, bounded read-only queries, saved Parquet results, reusable local workspaces and DuckDB follow-up queries through the shared CLI/MCP core. The diagnostic probe also verifies exact BigQuery → DuckDB transfer.
 
+## Install the desktop plugin
+
+```sh
+bun install --frozen-lockfile
+bun run package
+codex plugin marketplace add /absolute/path/to/bq-tool/dist/plugin
+codex plugin add bq-tool@bq-tool-local
+```
+
+The build assembles a self-contained local marketplace in `dist/plugin` and a versioned target-specific `.tar.gz` archive with checksums. It includes the executable, the focused `bq-analysis` skill, installation/acceptance docs, and an offline synthetic workspace. Users of the assembled package need no Bun or Node installation. The repo marketplace entry points at the built plugin; build before installing it.
+
+See [desktop installation and ADC setup](docs/INSTALL.md) for Codex and ChatGPT desktop instructions, cache refresh, offline first use and troubleshooting. The [desktop acceptance checklist](docs/ACCEPTANCE.md) covers skill activation and real host authentication; those UI checks are performed by the user. Local workspaces belong outside plugin source, build output and installation caches.
+
 ## Build and install the CLI
 
 Building and development require Bun 1.4.3 or newer. The distributed executable contains the runtime, JavaScript dependencies, and DuckDB native files; users do not need Bun, Node.js, or `node_modules`.
@@ -215,7 +228,7 @@ All tools advertise input/output schemas and return structured content. MCP inpu
 
 For a client with a direct stdio configuration, set `command` to the absolute path of the installed `bq-tool` executable and `args` to `["mcp"]`. Ensure the launched process can discover ADC.
 
-Root `plugin.json` and `mcp.json` provide the portable local plugin entry point. The manifest launches `${PLUGIN_ROOT}/dist/bq-tool mcp`; a plugin package must include that executable. The standalone tests verify this launch configuration outside the checkout. Marketplace distribution, cached-copy assembly and manual installation in Codex/ChatGPT desktop remain milestone 3. See [OpenAI's plugin packaging guide](https://developers.openai.com/plugins/build/plugins).
+Root `plugin.json` and `mcp.json` provide the portable local plugin entry point. The manifest launches `${PLUGIN_ROOT}/dist/bq-tool mcp`; a plugin package must include that executable. The standalone tests verify this launch configuration outside the checkout. The package command assembles the local marketplace and cached-copy tests exercise it outside the checkout. Codex/ChatGPT desktop UI installation and skill behavior remain pending user verification. See [OpenAI's plugin packaging guide](https://developers.openai.com/plugins/build/plugins).
 
 ## Development and validation
 
@@ -240,17 +253,27 @@ bun run test:binary
 
 This builds the binary, copies it into an isolated directory without sources or dependencies, and checks CLI and MCP behavior with no Bun on PATH, including saved-result joins, derived Parquet publication and fresh-process resume. Binary checks are skipped in the default source test suite.
 
+Test the full distributable plugin, including archive contents, executable modes, installed manifest paths, references and the copied synthetic workspace:
+
+```sh
+bun run test:plugin
+```
+
+This unpacks the archive, verifies checksums, moves the plugin to a cache-shaped directory with spaces in its path, removes the distribution source, and exercises CLI/MCP local analysis with no Bun on PATH and an invalid Google credential path. It does not automate desktop UI or establish skill-selection behavior.
+
 Live suites are opt-in and create diagnostic query jobs:
 
 ```sh
 BQ_TOOL_PROJECT=your-project-id BQ_TOOL_LOCATION=australia-southeast1 bun run test:live
 BQ_TOOL_PROJECT=your-project-id BQ_TOOL_LOCATION=australia-southeast1 bun run test:binary:live
+BQ_TOOL_PROJECT=your-project-id BQ_TOOL_LOCATION=australia-southeast1 \
+  BQ_TOOL_LIVE_DATASET=analytics BQ_TOOL_LIVE_TABLE=events bun run test:plugin:live
 ```
 
 To include real schema/query checks, also set `BQ_TOOL_LIVE_DATASET` and `BQ_TOOL_LIVE_TABLE` to a native table in the configured project. The suite reads metadata, performs bounded COUNT aggregates, checks named parameters, extracts complete Parquet snapshots, joins them locally, saves derivatives, resumes snapshots and verifies polling/result limits through both entry points. Warehouse checks are skipped when these two variables are absent.
 
-The live scripts set `BQ_TOOL_LIVE=1` and compare the CLI and MCP probe results. `test:live` exercises source execution; `test:binary:live` exercises the copied standalone executable. Manual host/UI testing belongs to the user.
+The live scripts set `BQ_TOOL_LIVE=1`. `test:live` and `test:binary:live` compare CLI/MCP probe results; `test:live` exercises source execution; `test:binary:live` exercises the copied standalone executable. `test:plugin:live` exercises the unpacked/cache-copied full plugin and requires the live dataset/table settings. Manual host/UI testing belongs to the user.
 
 ## Scope
 
-Discovery, bounded warehouse queries, saved Parquet results, reusable local workspaces and local follow-up SQL are implemented through CLI and MCP. The analysis skill and final plugin distribution remain Milestone 3. See [MVP_PLAN.md](MVP_PLAN.md) for the agreed scope and milestones.
+Discovery, bounded warehouse queries, saved Parquet results, reusable local workspaces and local follow-up SQL are implemented through CLI and MCP. The focused analysis skill, portable package, local marketplace, synthetic examples and installation docs are implemented. Manual desktop acceptance remains pending; public-directory publication is a separate step. See [MVP_PLAN.md](MVP_PLAN.md) for the agreed scope and milestones.

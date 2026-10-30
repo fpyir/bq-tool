@@ -1,0 +1,3 @@
+interface:
+  display_name: "BigQuery analysis"
+  short_description: "Bounded BigQuery extracts and reusable local analysis"
