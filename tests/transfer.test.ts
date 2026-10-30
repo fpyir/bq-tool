@@ -38,6 +38,7 @@ test("timestamps preserve negative and boundary microseconds, including inside s
 test("invalid wire values, missing cells, unsupported types, and input options fail clearly", () => {
   assert.throws(() => decodeRow([{ name: "value", type: "INTEGER" }], { f: [{ v: 9007199254740992 }] }));
   assert.throws(() => decodeRow(fields, { f: [] }), /row\/schema length mismatch/);
+  assert.throws(() => decodeRow([{ name: "x", type: "INTEGER" }, { name: "x", type: "INTEGER" }], { f: [{ v: "1" }, { v: "2" }] }), /unique alias/);
   assert.throws(() => localType({ name: "value", type: "GEOGRAPHY" }), /Unsupported BigQuery type/);
   assert.throws(() => probeInputSchema.parse({ project: "valid-project", location: "US", sql: "DROP TABLE x" }));
 });

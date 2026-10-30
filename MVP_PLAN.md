@@ -1,6 +1,6 @@
 # BQ Tool prototype plan
 
-Status: proposed scope, 30 October 2026. No implementation has started.
+Status: Milestone 0 is complete and committed. Milestone 1 implements schema discovery, bounded read queries, status/cancellation, and execution receipts through the CLI and MCP. Saved local datasets remain Milestone 2.
 
 BQ Tool gives agents a repeatable workflow for discovering BigQuery data, running bounded read queries, keeping useful results locally, and answering follow-up questions with traceable evidence. The first delivery is an open-source plugin for local Codex and ChatGPT desktop, backed by a CLI and one shared implementation.
 
@@ -102,6 +102,7 @@ Every operation takes its workspace or configuration explicitly; the MCP process
 - Treat IAM as the authority for warehouse access. Prefer dataset-scoped Data Viewer and a billing-project Job User identity. Application configuration and skill instructions do not reduce the permissions of a broadly privileged credential. Do not change IAM as part of installation.
 - Always dry-run before execution, and also set `maximumBytesBilled` on the real job. Google documents both in its [cost controls](https://docs.cloud.google.com/bigquery/docs/best-practices-costs). The setting bounds on-demand bytes billed; it is not a universal currency budget or capacity-pricing cap.
 - Start with configurable defaults of 1 GiB maximum bytes billed per query, 100,000 downloaded rows, 100 MiB downloaded data, and a 10-row model preview. Enforce download limits during pagination. Exceeding a materialization limit produces an explicit incomplete result, not a usable truncated dataset. Query processing costs may already have occurred.
+- Milestone 1 returns results inline, with smaller defaults of 1000 rows and 1 MiB of decoded schema/rows. Explicit limits can increase these to 100,000 rows and 100 MiB. Saved materialization and separate previews arrive in Milestone 2; inline limits do not implicitly add SQL LIMIT or return truncated data.
 - Add job timeout and cancellation handling, plus local memory, disk, and execution limits. A client timeout is not proof that the server job stopped.
 - Limit local SQL to the workspace's registered results and controlled derived-result creation. Restrict external access, extension loading, filesystem/network table functions, attachment, and arbitrary export destinations. A read-only SQL statement is not by itself a filesystem sandbox.
 - Treat warehouse strings, descriptions, and query results as source data rather than executable instructions.

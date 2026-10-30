@@ -9,6 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { probeInputSchema } from "../../src/bigquery.ts";
 import { probeResultSchema, runtimeSchema } from "../../src/core.ts";
 import { packagedStdioParameters } from "../stdio.ts";
+import { exerciseWarehouse } from "../live/warehouse-check.ts";
 
 async function verifyExecutable(live: boolean) {
   const root = mkdtempSync(join(tmpdir(), "bq-tool-executable-"));
@@ -47,7 +48,7 @@ async function verifyExecutable(live: boolean) {
     });
     await client.connect(transport);
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["check_runtime", "probe_bigquery"]);
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["cancel_run", "check_runtime", "describe_table", "dry_run_query", "get_run", "list_datasets", "list_tables", "probe_bigquery", "run_query"]);
     const result = await client.callTool({ name: "check_runtime", arguments: {} });
     assert.notEqual(result.isError, true);
     assert.deepEqual(runtimeSchema.parse(result.structuredContent), runtime);
@@ -59,6 +60,9 @@ async function verifyExecutable(live: boolean) {
       const mcpResult = probeResultSchema.parse(toolResult.structuredContent);
       assert.deepEqual(mcpResult.local, cliResult.local);
       assert.deepEqual(mcpResult.source.rows, cliResult.source.rows);
+      if (Bun.env.BQ_TOOL_LIVE_DATASET && Bun.env.BQ_TOOL_LIVE_TABLE) {
+        await exerciseWarehouse([join(bin, "bq-tool")], { ...await packagedStdioParameters(root), env });
+      }
     }
     assert.equal(stderr, "");
   } finally {

@@ -15,7 +15,7 @@ test("a real stdio client discovers schemas and executes the shared local operat
   try {
     await client.connect(transport);
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["check_runtime", "probe_bigquery"]);
+    assert.deepEqual(tools.map((tool) => tool.name).sort(), ["cancel_run", "check_runtime", "describe_table", "dry_run_query", "get_run", "list_datasets", "list_tables", "probe_bigquery", "run_query"]);
     for (const tool of tools) assert.ok(tool.outputSchema);
     const result = await client.callTool({ name: "check_runtime", arguments: {} });
     assert.notEqual(result.isError, true);
@@ -24,6 +24,10 @@ test("a real stdio client discovers schemas and executes the shared local operat
     assert.match(output.duckdb, /^v\d+\./);
     const invalid = await client.callTool({ name: "probe_bigquery", arguments: { project: "bad", location: "US", sql: "DELETE" } });
     assert.equal(invalid.isError, true);
+    for (const sql of ["DELETE FROM d.t WHERE TRUE", "SELECT p.d.remote(1)", "SELECT 1; DROP TABLE d.t"]) {
+      const denied = await client.callTool({ name: "run_query", arguments: { project: "test-project", location: "US", sql } });
+      assert.equal(denied.isError, true);
+    }
     assert.equal(stderr, "");
   } finally {
     await client.close();

@@ -1,11 +1,9 @@
 import { BigQuery } from "@google-cloud/bigquery";
 import { z } from "zod";
 import { PROBE_SQL } from "./probe-sql.ts";
+import { connectionSchema } from "./connection.ts";
 
-export const probeInputSchema = z.strictObject({
-  project: z.string().regex(/^[a-z][a-z0-9-]{4,61}[a-z0-9]$/, "Use a Google Cloud project ID"),
-  location: z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]*$/, "Use a BigQuery location"),
-});
+export const probeInputSchema = connectionSchema;
 export type ProbeInput = z.infer<typeof probeInputSchema>;
 
 export interface Field {
@@ -13,6 +11,9 @@ export interface Field {
   type: string;
   mode?: string | undefined;
   fields?: Field[] | undefined;
+  description?: string | undefined;
+  precision?: string | undefined;
+  scale?: string | undefined;
 }
 
 export const fieldSchema: z.ZodType<Field> = z.object({
@@ -20,6 +21,7 @@ export const fieldSchema: z.ZodType<Field> = z.object({
   type: z.string(),
   mode: z.string().optional(),
   fields: z.lazy(() => fieldSchema.array()).optional(),
+  description: z.string().optional(), precision: z.string().optional(), scale: z.string().optional(),
 });
 const wireRowSchema = z.object({ f: z.array(z.object({ v: z.unknown() })) });
 
@@ -43,6 +45,7 @@ export interface ProbeData {
 export function decodeRow(fields: Field[], wireRow: unknown): Row {
   const { f: cells } = wireRowSchema.parse(wireRow);
   if (cells.length !== fields.length) throw new Error("BigQuery row/schema length mismatch");
+  if (new Set(fields.map((field) => field.name)).size !== fields.length) throw new Error("Duplicate result columns; give each column a unique alias");
   return Object.fromEntries(fields.map((field, index) => [field.name, decodeValue(field, cells[index]!.v)]));
 }
 
